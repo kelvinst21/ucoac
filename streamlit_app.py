@@ -625,11 +625,8 @@ def load_sample_data() -> pd.DataFrame:
     sample_path = Path(__file__).parent / 'data' / 'gdp_data.csv'
     try:
         return pd.read_csv(sample_path, dtype=str)
-    except FileNotFoundError:
+    except (FileNotFoundError, Exception):
         # Create sample data if file doesn't exist
-        import pandas as pd
-        from datetime import datetime, timedelta
-        
         dates = pd.date_range(start='2023-01-01', periods=12, freq='M')
         sample_data = {
             'Fecha': dates.strftime('%Y-%m-%d'),
