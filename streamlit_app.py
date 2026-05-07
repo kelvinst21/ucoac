@@ -627,7 +627,7 @@ def load_sample_data() -> pd.DataFrame:
         return pd.read_csv(sample_path, dtype=str)
     except (FileNotFoundError, Exception):
         # Create sample data if file doesn't exist
-        dates = pd.date_range(start='2023-01-01', periods=12, freq='M')
+        dates = pd.date_range(start='2023-01-01', periods=12, freq='ME')
         sample_data = {
             'Fecha': dates.strftime('%Y-%m-%d'),
             'Activos': ['1000000', '1050000', '1100000', '1150000', '1200000', '1250000',
