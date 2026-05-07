@@ -759,6 +759,20 @@ def main():
     df = build_time_index(df, date_column)
     metadata = summarize_dataframe(df)
 
+    # Descargar en Excel si es un archivo XML
+    if uploaded_filename and uploaded_filename.lower().endswith('.xml'):
+        try:
+            excel_bytes = df_to_excel_bytes(raw_df_original)
+            excel_name = Path(uploaded_filename).stem + '.xlsx'
+            st.download_button(
+                label='Descargar archivo convertido a Excel',
+                data=excel_bytes,
+                file_name=excel_name,
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+        except Exception as err:
+            st.error(f'No se pudo generar el Excel: {err}')
+
     # Mostrar solo validaciones
     validation_results = validate_balance_sheet(raw_df_original, raw_header, uploaded_filename)
     show_validation_results(validation_results)
