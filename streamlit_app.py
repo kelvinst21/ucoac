@@ -9,8 +9,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 st.set_page_config(
-    page_title='Bank Financial Dashboard',
-    page_icon=':bank:',
+    page_title='Analizador de XML de EEFF COAC',
+    page_icon=':bar_chart:',
     layout='wide',
 )
 
@@ -150,6 +150,21 @@ def parse_balance_xml(file) -> pd.DataFrame:
             fecha_corte = fecha_corte_raw
 
     data_rows = []
+    
+    # Primera pasada: agregar elementos como filas independientes
+    for elemento in root.findall(qpath('elemento'), ns):
+        e_cod = elemento.get('codigo', '0')
+        e_nom = elemento.get('nombre', 'N/A')
+        try:
+            e_total = float(elemento.get('total', 0))
+        except (ValueError, TypeError):
+            e_total = 0.0
+        
+        # Agregar elemento como una "cuenta" de nivel superior
+        row = create_row(ruc, fecha_corte, e_cod, e_nom, '0', 'Elemento', e_cod, e_nom, '0', 'Total Elemento', e_total)
+        data_rows.append(row)
+    
+    # Segunda pasada: agregar detalle de subcuentas
     for elemento in root.findall(qpath('elemento'), ns):
         e_cod = elemento.get('codigo', '0')
         e_nom = elemento.get('nombre', 'N/A')
@@ -377,8 +392,23 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
+    df_export = df.copy()
+    
+    # Mapear elementos a cuentas (cuando grupo.nombre == 'Elemento')
+    if 'grupo.nombre' in df_export.columns and 'elemento.codigo' in df_export.columns:
+        elemento_mask = df_export['grupo.nombre'] == 'Elemento'
+        if elemento_mask.any():
+            # Para filas de elemento, copiar elemento.codigo → cuenta.codigo
+            df_export.loc[elemento_mask, 'cuenta.codigo'] = df_export.loc[elemento_mask, 'elemento.codigo']
+            df_export.loc[elemento_mask, 'cuenta.nombre'] = df_export.loc[elemento_mask, 'elemento.nombre']
+    
+    # Eliminar columnas de elemento y grupo
+    columns_to_drop = ['elemento.codigo', 'elemento.nombre', 'grupo.codigo', 'grupo.nombre']
+    columns_to_drop = [col for col in columns_to_drop if col in df_export.columns]
+    df_export = df_export.drop(columns=columns_to_drop)
+    
     buffer = BytesIO()
-    df.to_excel(buffer, index=False, engine='openpyxl')
+    df_export.to_excel(buffer, index=False, engine='openpyxl')
     buffer.seek(0)
     return buffer.read()
 
@@ -526,11 +556,11 @@ def plot_gauge(value: float | None, title: str, min_value: float = 0, max_value:
         title={'text': title},
         gauge={
             'axis': {'range': [min_value, max_value]},
-            'bar': {'color': '#1f77b4'},
+            'bar': {'color': '#5B9BD5'},
             'steps': [
-                {'range': [min_value, max_value * 0.6], 'color': '#d62728'},
-                {'range': [max_value * 0.6, max_value * 0.85], 'color': '#ff7f0e'},
-                {'range': [max_value * 0.85, max_value], 'color': '#2ca02c'}
+                {'range': [min_value, max_value * 0.6], 'color': '#E8D7CF'},
+                {'range': [max_value * 0.6, max_value * 0.85], 'color': '#D4E4F7'},
+                {'range': [max_value * 0.85, max_value], 'color': '#C6E0B4'}
             ]
         },
         number={'suffix': unit}
@@ -557,18 +587,37 @@ def build_charts(df: pd.DataFrame, categories: dict[str, list[str]], date_column
 
     if date_key and income_col:
         charts['income_trend'] = px.line(df_chart, x=date_key, y=income_col, title='Ingresos por periodo', markers=True)
+        charts['income_trend'].update_traces(line=dict(color='#5B9BD5', width=2))
     if date_key and expense_col:
         charts['expense_trend'] = px.line(df_chart, x=date_key, y=expense_col, title='Gastos por periodo', markers=True)
+        charts['expense_trend'].update_traces(line=dict(color='#A5A5A5', width=2))
     if date_key and profit_col:
         charts['profit_trend'] = px.line(df_chart, x=date_key, y=profit_col, title='Utilidad Neta por periodo', markers=True)
+        charts['profit_trend'].update_traces(line=dict(color='#70AD47', width=2))
     if date_key and delinquency_col and portfolio_col:
         df_chart['npl_ratio'] = df_chart[delinquency_col] / df_chart[portfolio_col] * 100
         charts['npl_trend'] = px.line(df_chart, x=date_key, y='npl_ratio', title='Ratio de Morosidad (%)', markers=True)
+        charts['npl_trend'].update_traces(line=dict(color='#D4A574', width=2))
     if date_key and income_col and expense_col:
         charts['income_expense'] = px.bar(df_chart, x=date_key, y=[income_col, expense_col], title='Ingresos vs Gastos', barmode='group')
+        charts['income_expense'].update_traces(marker_color='#5B9BD5', selector=dict(name=income_col))
+        charts['income_expense'].update_traces(marker_color='#A5A5A5', selector=dict(name=expense_col))
     if portfolio_col and len(df_chart) <= 50:
         labels = df_chart.index.astype(str)
         charts['portfolio_treemap'] = px.treemap(df_chart.assign(label=labels), path=['label'], values=portfolio_col, title='Cartera por fila')
+    
+    # Aplicar diseño minimalista a todos los gráficos
+    for chart in charts.values():
+        chart.update_layout(
+            plot_bgcolor='rgba(250,251,252,1)',
+            paper_bgcolor='rgba(255,255,255,1)',
+            font=dict(family="Arial, sans-serif", color="#374151"),
+            margin=dict(l=50, r=50, t=80, b=50),
+            xaxis=dict(showgrid=False, zeroline=False, color='#9CA3AF'),
+            yaxis=dict(showgrid=True, gridcolor='#E5E7EB', zeroline=False, color='#9CA3AF'),
+            hovermode='x unified'
+        )
+    
     return charts
 
 
@@ -593,18 +642,24 @@ def show_summary(metrics: dict[str, dict[str, float | None]], categories: dict[s
     with st.expander('Calidad de datos y estructura del dataset'):
         st.write(metadata)
 
+    with st.expander('Calidad de datos y estructura del dataset'):
+        st.write(metadata)
+
 
 def show_validation_results(validations: dict[str, dict[str, object]]):
-    if not validations:
-        return
     st.markdown('### Validaciones de integridad del balance')
+    
+    if not validations:
+        st.info('No hay validaciones disponibles. Cargue un archivo XML con estructura de balance para activar las validaciones.')
+        return
+    
     rows = []
     for key, result in validations.items():
         status = 'OK' if result.get('ok') else 'FALLO'
         message = result.get('mensaje', '')
         details = []
         if key == 'registro':
-            details.append(f"Registros: {result.get('actual')} / {result.get('esperado')}")
+            details.append(f"Registros: {result.get('calculado')} / {result.get('esperado')}")
         elif key == 'cabecera':
             details.append(f"Archivo: {result.get('archivo')}")
             details.append(f"Estructura: {result.get('estructura')}")
@@ -617,7 +672,11 @@ def show_validation_results(validations: dict[str, dict[str, object]]):
             details.append(f"Activo + Gastos: {result.get('activos') + result.get('gastos')}")
             details.append(f"Pasivo + Patrimonio + Ingresos: {result.get('pasivos') + result.get('patrimonio') + result.get('ingresos')}")
         rows.append({'Validación': message, 'Estado': status, 'Detalles': ' | '.join(details)})
-    st.table(pd.DataFrame(rows))
+    
+    if rows:
+        st.table(pd.DataFrame(rows))
+    else:
+        st.info('No hay resultados de validación para mostrar.')
 
 
 @st.cache_data
@@ -645,9 +704,24 @@ def load_sample_data() -> pd.DataFrame:
 
 
 def main():
-    st.title('Dashboard Ejecutivo Financiero Bancario')
+    # Estilo minimalista
+    st.markdown("""
+    <style>
+    body { background-color: #FAFBFC; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif; }
+    h1 { color: #1F2937; font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h2 { color: #374151; font-size: 1.75rem; font-weight: 600; }
+    h3 { color: #4B5563; font-size: 1.25rem; font-weight: 600; }
+    .stMetric { background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #E5E7EB; }
+    .stTable { background: white; border-radius: 0.5rem; border: 1px solid #E5E7EB; }
+    .stExpander { background: white; border: 1px solid #E5E7EB; border-radius: 0.5rem; }
+    .stTabs [data-baseweb="tab-list"] button { color: #6B7280; font-size: 0.95rem; }
+    .stTabs [aria-selected="true"] { border-bottom: 2px solid #5B9BD5; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.title('Analizador de XML de EEFF COAC')
     st.markdown(
-        'Cargue un CSV con información financiera del banco para generar un dashboard ejecutivo con análisis automático, KPIs y visualizaciones interactivas.'
+        'Cargue un archivo XML o CSV con información financiera para generar un análisis automático con KPIs y visualizaciones.'
     )
 
     with st.sidebar:
@@ -684,23 +758,8 @@ def main():
     df = df.apply(safe_numeric)
     df = build_time_index(df, date_column)
     metadata = summarize_dataframe(df)
-    kpis = compute_kpis(df, categories, date_column)
-    insights = build_insights(df, kpis, categories, date_column)
-    charts = build_charts(df, categories, date_column)
 
-    if uploaded_filename and uploaded_filename.lower().endswith('.xml'):
-        try:
-            excel_bytes = df_to_excel_bytes(raw_df_original)
-            excel_name = Path(uploaded_filename).stem + '.xlsx'
-            st.download_button(
-                label='Descargar archivo convertido a Excel',
-                data=excel_bytes,
-                file_name=excel_name,
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-        except Exception as err:
-            st.error(f'No se pudo generar el Excel: {err}')
-
+    # Mostrar solo validaciones
     validation_results = validate_balance_sheet(raw_df_original, raw_header, uploaded_filename)
     show_validation_results(validation_results)
 
