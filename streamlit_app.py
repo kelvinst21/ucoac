@@ -623,7 +623,28 @@ def show_validation_results(validations: dict[str, dict[str, object]]):
 @st.cache_data
 def load_sample_data() -> pd.DataFrame:
     sample_path = Path(__file__).parent / 'data' / 'gdp_data.csv'
-    return pd.read_csv(sample_path, dtype=str)
+    try:
+        return pd.read_csv(sample_path, dtype=str)
+    except FileNotFoundError:
+        # Create sample data if file doesn't exist
+        import pandas as pd
+        from datetime import datetime, timedelta
+        
+        dates = pd.date_range(start='2023-01-01', periods=12, freq='M')
+        sample_data = {
+            'Fecha': dates.strftime('%Y-%m-%d'),
+            'Activos': ['1000000', '1050000', '1100000', '1150000', '1200000', '1250000',
+                       '1300000', '1350000', '1400000', '1450000', '1500000', '1550000'],
+            'Pasivos': ['600000', '610000', '620000', '630000', '640000', '650000',
+                       '660000', '670000', '680000', '690000', '700000', '710000'],
+            'Patrimonio': ['400000', '440000', '480000', '520000', '560000', '600000',
+                          '640000', '680000', '720000', '760000', '800000', '840000'],
+            'Ingresos': ['50000', '52000', '54000', '56000', '58000', '60000',
+                        '62000', '64000', '66000', '68000', '70000', '72000'],
+            'Gastos': ['30000', '31000', '32000', '33000', '34000', '35000',
+                      '36000', '37000', '38000', '39000', '40000', '41000']
+        }
+        return pd.DataFrame(sample_data)
 
 
 def main():
